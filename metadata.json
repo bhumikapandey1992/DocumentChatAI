@@ -1,0 +1,5 @@
+{
+  "name": "DocuChat AI",
+  "description": "A minimalist, AI-powered document assistant for chatting with your PDFs, DOCX, and text files.",
+  "requestFramePermissions": []
+}
