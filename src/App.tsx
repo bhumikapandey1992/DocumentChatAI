@@ -4,7 +4,6 @@ import { ChatInterface, ThinkingStep } from './components/ChatInterface';
 import { UploadZone } from './components/UploadZone';
 import { SourcesPanel } from './components/SourcesPanel';
 import { Document, Message, Source } from './types';
-import { GoogleGenAI } from "@google/genai";
 import { AnimatePresence } from 'motion/react';
 
 const INITIAL_DOCS: Document[] = [
@@ -99,16 +98,38 @@ export default function App() {
       // Step 3: Generating (Call API)
       setThinkingStep('generating');
       
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Context: You are an AI assistant helping a user with their document named "${selectedDoc.name}".
-        User question: ${content}
-        
-        Provide a helpful, concise answer based on the document context.`,
+      const openAiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!openAiApiKey) {
+        throw new Error('Missing VITE_OPENAI_API_KEY.');
+      }
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openAiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an AI assistant helping a user with their document named "${selectedDoc.name}".`,
+            },
+            {
+              role: 'user',
+              content: `${content}\n\nProvide a helpful, concise answer based on the document context.`,
+            },
+          ],
+        }),
       });
 
-      const aiResponse = response.text || "I'm sorry, I couldn't process that request.";
+      if (!response.ok) {
+        throw new Error(`OpenAI request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const aiResponse = data.choices?.[0]?.message?.content || "I'm sorry, I couldn't process that request.";
       
       setThinkingStep(null);
       setIsLoading(false);
@@ -144,7 +165,7 @@ export default function App() {
       setCurrentSources(mockSources);
 
     } catch (error) {
-      console.error("Error calling Gemini:", error);
+      console.error("Error calling OpenAI:", error);
       setThinkingStep(null);
       setIsLoading(false);
       const errorMessage: Message = {
