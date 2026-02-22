@@ -6,6 +6,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def answer_with_context(question: str, context_chunks: list[str]) -> str:
+    if not context_chunks:
+        return "I don't know based on the selected document."
+
     context = "\n\n".join(context_chunks)
     system_prompt = (
         "You are a helpful assistant for question answering over uploaded documents. "

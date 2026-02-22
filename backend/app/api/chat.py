@@ -11,7 +11,12 @@ router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, db: Session = Depends(get_db)):
-    hits = retrieve_relevant_chunks(db=db, query=payload.question, limit=payload.top_k)
+    hits = retrieve_relevant_chunks(
+        db=db,
+        query=payload.question,
+        document_id=payload.document_id,
+        limit=payload.top_k,
+    )
 
     context = [item.content for item in hits]
     answer = answer_with_context(payload.question, context)

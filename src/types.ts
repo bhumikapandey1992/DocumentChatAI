@@ -1,5 +1,6 @@
 export interface Document {
   id: string;
+  backendId: number;
   name: string;
   size: string;
   type: string;
