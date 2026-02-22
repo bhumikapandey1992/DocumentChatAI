@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
 interface UploadZoneProps {
-  onUpload: (files: File[]) => void;
+  onUpload: (files: File[]) => Promise<void>;
   onClose: () => void;
 }
 
@@ -35,13 +35,14 @@ export function UploadZone({ onUpload, onClose }: UploadZoneProps) {
     }
   };
 
-  const processFiles = (files: File[]) => {
+  const processFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     setUploading(true);
-    // Simulate upload progress
-    setTimeout(() => {
-      onUpload(files);
+    try {
+      await onUpload(files);
+    } finally {
       setUploading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -50,58 +51,68 @@ export function UploadZone({ onUpload, onClose }: UploadZoneProps) {
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-zinc-200"
+        transition={{ type: "spring", damping: 30, stiffness: 300 }}
+        className="relative w-full max-w-md"
       >
-        <div className="flex items-center justify-between p-6 border-b border-zinc-100">
-          <h3 className="text-lg font-bold text-zinc-900 tracking-tight">Upload Documents</h3>
-          <button onClick={onClose} className="p-2 hover:bg-zinc-50 rounded-full transition-colors">
-            <X className="w-5 h-5 text-zinc-400 hover:text-zinc-600" />
-          </button>
-        </div>
+        <button
+          onClick={onClose}
+          className="absolute -top-12 right-0 p-2 bg-white/80 backdrop-blur-sm rounded-lg border border-zinc-200 text-zinc-500 hover:text-zinc-700 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
 
-        <div className="p-8">
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              "relative border-2 border-dashed rounded-2xl p-12 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all",
-              isDragging 
-                ? "border-indigo-500 bg-indigo-50/30" 
-                : "border-zinc-200 hover:border-indigo-200 hover:bg-zinc-50/50"
-            )}
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              className="hidden"
-              multiple
-              accept=".pdf,.docx,.txt"
-            />
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={cn(
+            "relative overflow-hidden rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-all duration-300",
+            isDragging
+              ? "border-indigo-400 bg-indigo-50 scale-[1.02]"
+              : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50",
+            uploading && "pointer-events-none"
+          )}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.docx,.txt"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
 
+          <AnimatePresence mode="wait">
             {uploading ? (
-              <div className="flex flex-col items-center gap-4">
-                <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
-                <p className="text-sm font-bold text-zinc-600 text-center uppercase tracking-widest">
-                  Processing...
-                </p>
-              </div>
+              <motion.div
+                key="uploading"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="flex flex-col items-center"
+              >
+                <div className="w-14 h-14 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
+                  <Loader2 className="w-7 h-7 text-indigo-600 animate-spin" />
+                </div>
+                <h3 className="text-lg font-semibold text-zinc-900 mb-1">Uploading documents...</h3>
+                <p className="text-sm text-zinc-500">Parsing and indexing your files.</p>
+              </motion.div>
             ) : (
-              <>
-                <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center shadow-sm shadow-indigo-100">
-                  <Upload className="w-8 h-8 text-indigo-600" />
+              <motion.div
+                key="idle"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="flex flex-col items-center"
+              >
+                <div className="w-14 h-14 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
+                  <Upload className="w-7 h-7 text-indigo-600" />
                 </div>
-                <div className="text-center">
-                  <p className="text-base font-bold text-zinc-900 tracking-tight">
-                    Drag & Drop Documents
-                  </p>
-                  <p className="text-sm text-zinc-400 mt-1 font-medium">
-                    or click to browse from your computer
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 mt-4">
+                <h3 className="text-lg font-semibold text-zinc-900 mb-1">Upload your documents</h3>
+                <p className="text-sm text-zinc-500 mb-5">Drag and drop files here, or click to browse.</p>
+
+                <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1.5 px-3 py-1 bg-white border border-zinc-100 rounded-lg text-[10px] font-bold text-zinc-500 uppercase tracking-widest shadow-sm">
                     <FileText className="w-3 h-3" /> PDF
                   </div>
@@ -112,9 +123,9 @@ export function UploadZone({ onUpload, onClose }: UploadZoneProps) {
                     <FileText className="w-3 h-3" /> TXT
                   </div>
                 </div>
-              </>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
         </div>
       </motion.div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatInterface, ThinkingStep } from './components/ChatInterface';
 import { UploadZone } from './components/UploadZone';
@@ -6,25 +6,10 @@ import { SourcesPanel } from './components/SourcesPanel';
 import { Document, Message, Source } from './types';
 import { AnimatePresence } from 'motion/react';
 
-const INITIAL_DOCS: Document[] = [
-  {
-    id: '1',
-    name: 'Product_Requirements_v2.pdf',
-    size: '2.4 MB',
-    type: 'pdf',
-    uploadDate: '2024-03-20'
-  },
-  {
-    id: '2',
-    name: 'Marketing_Strategy_2024.docx',
-    size: '1.1 MB',
-    type: 'docx',
-    uploadDate: '2024-03-18'
-  }
-];
+const API_BASE_URL = import.meta.env.VITE_BACKEND_API_URL ?? 'http://localhost:8000/api';
 
 export default function App() {
-  const [documents, setDocuments] = useState<Document[]>(INITIAL_DOCS);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -35,15 +20,40 @@ export default function App() {
 
   const selectedDoc = documents.find(d => d.id === selectedDocId);
 
-  const handleUpload = (files: File[]) => {
-    const newDocs: Document[] = files.map(file => ({
-      id: Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-      type: file.name.split('.').pop() || 'txt',
-      uploadDate: new Date().toISOString().split('T')[0]
-    }));
-    setDocuments(prev => [...newDocs, ...prev]);
+  const handleUpload = async (files: File[]) => {
+    const uploaded: Document[] = [];
+
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed for ${file.name}`);
+      }
+
+      const data: { document_id: number; filename: string } = await response.json();
+      uploaded.push({
+        id: data.document_id.toString(),
+        backendId: data.document_id,
+        name: data.filename,
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        type: file.name.split('.').pop() || 'txt',
+        uploadDate: new Date().toISOString().split('T')[0],
+      });
+    }
+
+    if (uploaded.length > 0) {
+      setDocuments(prev => [...uploaded, ...prev]);
+      setSelectedDocId(uploaded[0].id);
+      setMessages([]);
+      setCurrentSources([]);
+    }
+
     setIsUploadOpen(false);
   };
 
@@ -60,14 +70,13 @@ export default function App() {
     setStreamingMessageId(messageId);
     let currentText = "";
     const words = fullText.split(' ');
-    
+
     for (let i = 0; i < words.length; i++) {
       currentText += (i === 0 ? "" : " ") + words[i];
-      setMessages(prev => prev.map(msg => 
+      setMessages(prev => prev.map(msg =>
         msg.id === messageId ? { ...msg, content: currentText } : msg
       ));
-      // Random delay between words for natural feel
-      await new Promise(resolve => setTimeout(resolve, 30 + Math.random() * 50));
+      await new Promise(resolve => setTimeout(resolve, 15 + Math.random() * 30));
     }
     setStreamingMessageId(null);
   };
@@ -84,57 +93,44 @@ export default function App() {
 
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
-    setCurrentSources([]); // Clear sources for new query
+    setCurrentSources([]);
 
     try {
-      // Step 1: Analyzing
       setThinkingStep('analyzing');
-      await new Promise(resolve => setTimeout(resolve, 800));
-
-      // Step 2: Retrieving
+      await new Promise(resolve => setTimeout(resolve, 400));
       setThinkingStep('retrieving');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Step 3: Generating (Call API)
+      await new Promise(resolve => setTimeout(resolve, 400));
       setThinkingStep('generating');
-      
-      const openAiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!openAiApiKey) {
-        throw new Error('Missing VITE_OPENAI_API_KEY.');
-      }
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openAiApiKey}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-4.1-mini',
-          messages: [
-            {
-              role: 'system',
-              content: `You are an AI assistant helping a user with their document named "${selectedDoc.name}".`,
-            },
-            {
-              role: 'user',
-              content: `${content}\n\nProvide a helpful, concise answer based on the document context.`,
-            },
-          ],
+          question: content,
+          document_id: selectedDoc.backendId,
+          top_k: 5,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`OpenAI request failed with status ${response.status}`);
+        throw new Error(`Chat request failed with status ${response.status}`);
       }
 
-      const data = await response.json();
-      const aiResponse = data.choices?.[0]?.message?.content || "I'm sorry, I couldn't process that request.";
-      
+      const data: {
+        answer: string;
+        sources: Array<{ document_id: number; chunk_id: number; chunk_index: number; content: string }>;
+      } = await response.json();
+
+      const mappedSources: Source[] = data.sources.map((source) => ({
+        id: source.chunk_id.toString(),
+        documentName: selectedDoc.name,
+        page: source.chunk_index + 1,
+        snippet: source.content,
+      }));
+
       setThinkingStep(null);
       setIsLoading(false);
 
-      // Create placeholder message for streaming
       const assistantMessageId = (Date.now() + 1).toString();
       const assistantMessage: Message = {
         id: assistantMessageId,
@@ -145,33 +141,21 @@ export default function App() {
 
       setMessages(prev => [...prev, assistantMessage]);
 
-      // Mock sources for demonstration
-      const mockSources: Source[] = [
-        {
-          id: Math.random().toString(),
-          documentName: selectedDoc.name,
-          page: Math.floor(Math.random() * 10) + 1,
-          snippet: "This is a relevant snippet from the document that supports the AI's answer. It contains key information about the user's query."
-        }
-      ];
+      await simulateStreaming(assistantMessageId, data.answer);
 
-      // Start streaming effect
-      await simulateStreaming(assistantMessageId, aiResponse);
-      
-      // Update with sources once streaming is done
-      setMessages(prev => prev.map(msg => 
-        msg.id === assistantMessageId ? { ...msg, sources: mockSources } : msg
+      setMessages(prev => prev.map(msg =>
+        msg.id === assistantMessageId ? { ...msg, sources: mappedSources } : msg
       ));
-      setCurrentSources(mockSources);
+      setCurrentSources(mappedSources);
 
     } catch (error) {
-      console.error("Error calling OpenAI:", error);
+      console.error('Error sending message:', error);
       setThinkingStep(null);
       setIsLoading(false);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "I encountered an error while processing your request. Please try again.",
+        content: 'I encountered an error while processing your request. Please try again.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -180,16 +164,16 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white">
-      <Sidebar 
+      <Sidebar
         documents={documents}
         selectedDocId={selectedDocId}
         onSelectDoc={setSelectedDocId}
         onUploadClick={() => setIsUploadOpen(true)}
         onDeleteDoc={handleDeleteDoc}
       />
-      
+
       <main className="flex-1 flex overflow-hidden">
-        <ChatInterface 
+        <ChatInterface
           messages={messages}
           onSendMessage={handleSendMessage}
           isLoading={isLoading}
@@ -197,13 +181,13 @@ export default function App() {
           selectedDocName={selectedDoc?.name || null}
           streamingMessageId={streamingMessageId}
         />
-        
+
         <SourcesPanel sources={currentSources} />
       </main>
 
       <AnimatePresence>
         {isUploadOpen && (
-          <UploadZone 
+          <UploadZone
             onUpload={handleUpload}
             onClose={() => setIsUploadOpen(false)}
           />

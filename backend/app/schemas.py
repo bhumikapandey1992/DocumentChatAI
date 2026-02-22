@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     question: str
+    document_id: int
     top_k: int = 5
 
 
